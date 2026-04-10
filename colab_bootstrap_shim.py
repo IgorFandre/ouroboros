@@ -64,21 +64,33 @@ if not (REPO_DIR / ".git").exists():
 else:
     subprocess.run(["git", "remote", "set-url", "origin", REMOTE_URL], cwd=str(REPO_DIR), check=True)
 
-subprocess.run(["git", "fetch", "origin"], cwd=str(REPO_DIR), check=True)
+subprocess.run(["git", "fetch", "--prune", "origin"], cwd=str(REPO_DIR), check=True)
 
 # Check if BOOT_BRANCH exists on the fork's remote.
-# New forks (from the main-only public repo) won't have it yet.
-_rc = subprocess.run(
-    ["git", "rev-parse", "--verify", f"origin/{BOOT_BRANCH}"],
+# Use ls-remote to avoid stale local refs after changing origin URL.
+_boot_exists_on_remote = subprocess.run(
+    ["git", "ls-remote", "--exit-code", "--heads", "origin", BOOT_BRANCH],
     cwd=str(REPO_DIR), capture_output=True,
-).returncode
+).returncode == 0
 
-if _rc == 0:
-    subprocess.run(["git", "checkout", BOOT_BRANCH], cwd=str(REPO_DIR), check=True)
-    subprocess.run(["git", "reset", "--hard", f"origin/{BOOT_BRANCH}"], cwd=str(REPO_DIR), check=True)
+if _boot_exists_on_remote:
+    subprocess.run(
+        ["git", "checkout", "-B", BOOT_BRANCH, f"origin/{BOOT_BRANCH}"],
+        cwd=str(REPO_DIR),
+        check=True,
+    )
 else:
-    print(f"[boot] branch {BOOT_BRANCH} not found on fork — creating from origin/main")
-    subprocess.run(["git", "checkout", "-b", BOOT_BRANCH, "origin/main"], cwd=str(REPO_DIR), check=True)
+    _base_branch = "origin/main"
+    _has_main = subprocess.run(
+        ["git", "rev-parse", "--verify", "origin/main"],
+        cwd=str(REPO_DIR),
+        capture_output=True,
+    ).returncode == 0
+    if not _has_main:
+        _base_branch = "origin/master"
+
+    print(f"[boot] branch {BOOT_BRANCH} not found on fork — creating from {_base_branch}")
+    subprocess.run(["git", "checkout", "-B", BOOT_BRANCH, _base_branch], cwd=str(REPO_DIR), check=True)
     subprocess.run(["git", "push", "-u", "origin", BOOT_BRANCH], cwd=str(REPO_DIR), check=True)
     _STABLE = f"{BOOT_BRANCH}-stable"
     subprocess.run(["git", "branch", _STABLE], cwd=str(REPO_DIR), check=True)
