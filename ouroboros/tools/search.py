@@ -7,12 +7,23 @@ import os
 from typing import Any, Dict, List
 
 from ouroboros.tools.registry import ToolContext, ToolEntry
+from ouroboros.utils import append_jsonl, truncate_for_log, utc_now_iso
 
 
 def _web_search(ctx: ToolContext, query: str) -> str:
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         return json.dumps({"error": "OPENAI_API_KEY not set; web_search unavailable."})
+    try:
+        append_jsonl(ctx.drive_logs() / "events.jsonl", {
+            "ts": utc_now_iso(),
+            "type": "external_egress",
+            "channel": "web_search",
+            "task_id": ctx.task_id,
+            "query_preview": truncate_for_log(query, 300),
+        })
+    except Exception:
+        pass
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)

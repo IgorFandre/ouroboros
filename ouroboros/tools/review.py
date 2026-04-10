@@ -10,7 +10,7 @@ import asyncio
 import logging
 import httpx
 
-from ouroboros.utils import utc_now_iso
+from ouroboros.utils import utc_now_iso, append_jsonl, truncate_for_log
 from ouroboros.tools.registry import ToolEntry, ToolContext
 
 
@@ -71,6 +71,18 @@ def _handle_multi_model_review(ctx: ToolContext, content: str = "", prompt: str 
     """Sync wrapper around async multi-model review. Registry calls this."""
     if models is None:
         models = []
+    try:
+        append_jsonl(ctx.drive_logs() / "events.jsonl", {
+            "ts": utc_now_iso(),
+            "type": "external_egress",
+            "channel": "multi_model_review",
+            "task_id": ctx.task_id,
+            "models": list(models)[:10],
+            "prompt_preview": truncate_for_log(prompt or "", 300),
+            "content_preview": truncate_for_log(content or "", 300),
+        })
+    except Exception:
+        pass
     try:
         try:
             asyncio.get_running_loop()

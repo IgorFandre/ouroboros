@@ -8,6 +8,7 @@ ToolRegistry collects all tools, provides schemas() and execute().
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -55,6 +56,9 @@ class ToolContext:
     # True when running inside handle_chat_direct (not a queued worker task)
     is_direct_chat: bool = False
 
+    # Operational profile (default|bank)
+    profile_name: str = "default"
+
     def repo_path(self, rel: str) -> pathlib.Path:
         return (self.repo_dir / safe_relpath(rel)).resolve()
 
@@ -91,6 +95,13 @@ CORE_TOOL_NAMES = {
 }
 
 
+BANK_BLOCKED_TOOLS = {
+    "run_shell",
+    "claude_code_edit",
+    "send_photo",
+}
+
+
 class ToolRegistry:
     """Ouroboros tool registry (SSOT).
 
@@ -100,8 +111,18 @@ class ToolRegistry:
 
     def __init__(self, repo_dir: pathlib.Path, drive_root: pathlib.Path):
         self._entries: Dict[str, ToolEntry] = {}
-        self._ctx = ToolContext(repo_dir=repo_dir, drive_root=drive_root)
+        self._ctx = ToolContext(
+            repo_dir=repo_dir,
+            drive_root=drive_root,
+            profile_name=str(os.environ.get("OUROBOROS_PROFILE", "default") or "default").strip().lower(),
+        )
         self._load_modules()
+
+    def _is_tool_allowed(self, name: str) -> bool:
+        profile = str(getattr(self._ctx, "profile_name", "default") or "default").strip().lower()
+        if profile == "bank" and name in BANK_BLOCKED_TOOLS:
+            return False
+        return True
 
     def _load_modules(self) -> None:
         """Auto-discover tool modules in ouroboros/tools/ that export get_tools()."""
@@ -131,14 +152,16 @@ class ToolRegistry:
     # --- Contract ---
 
     def available_tools(self) -> List[str]:
-        return [e.name for e in self._entries.values()]
+        return [e.name for e in self._entries.values() if self._is_tool_allowed(e.name)]
 
     def schemas(self, core_only: bool = False) -> List[Dict[str, Any]]:
         if not core_only:
-            return [{"type": "function", "function": e.schema} for e in self._entries.values()]
+            return [{"type": "function", "function": e.schema} for e in self._entries.values() if self._is_tool_allowed(e.name)]
         # Core tools + meta-tools for discovering/enabling extended tools
         result = []
         for e in self._entries.values():
+            if not self._is_tool_allowed(e.name):
+                continue
             if e.name in CORE_TOOL_NAMES or e.name in ("list_available_tools", "enable_tools"):
                 result.append({"type": "function", "function": e.schema})
         return result
@@ -147,6 +170,8 @@ class ToolRegistry:
         """Return name+description of all non-core tools."""
         result = []
         for e in self._entries.values():
+            if not self._is_tool_allowed(e.name):
+                continue
             if e.name not in CORE_TOOL_NAMES:
                 desc = e.schema.get("description", "No description")
                 result.append({"name": e.name, "description": desc})
@@ -155,7 +180,7 @@ class ToolRegistry:
     def get_schema_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Return the full schema for a specific tool."""
         entry = self._entries.get(name)
-        if entry:
+        if entry and self._is_tool_allowed(name):
             return {"type": "function", "function": entry.schema}
         return None
 
@@ -168,6 +193,9 @@ class ToolRegistry:
         entry = self._entries.get(name)
         if entry is None:
             return f"⚠️ Unknown tool: {name}. Available: {', '.join(sorted(self._entries.keys()))}"
+        if not self._is_tool_allowed(name):
+            profile = str(getattr(self._ctx, "profile_name", "default") or "default").strip().lower()
+            return f"⚠️ TOOL_BLOCKED_BY_PROFILE ({profile}): {name}"
         try:
             return entry.handler(self._ctx, **args)
         except TypeError as e:

@@ -344,6 +344,7 @@ class OuroborosAgent:
             emit_progress_fn=self._emit_progress,
             task_depth=int(task.get("depth", 0)),
             is_direct_chat=bool(task.get("_is_direct_chat")),
+            profile_name=str(os.environ.get("OUROBOROS_PROFILE", "default") or "default").strip().lower(),
         )
         self.tools.set_context(ctx)
 

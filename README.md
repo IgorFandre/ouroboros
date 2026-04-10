@@ -8,25 +8,27 @@
 [![GitHub stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fjoi-lab%2Fouroboros&query=%24.stargazers_count&label=stars&logo=github)](https://github.com/joi-lab/ouroboros/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/joi-lab/ouroboros)](https://github.com/joi-lab/ouroboros/network/members)
 
-A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026. Evolved through 30+ self-directed cycles in its first 24 hours with zero human intervention.
+A self-modifying AI agent with persistent identity, strategic reasoning, and autonomous development loops.
 
-Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
+Primary operating mode in this branch: strategic assistance for Bank leadership (research, optimization, structural improvement) with governance-aware execution.
 
-**Version:** 6.2.0 | [Landing Page](https://joi-lab.github.io/ouroboros/)
+**Version:** 6.3.0 | [Landing Page](https://joi-lab.github.io/ouroboros/)
 
 ---
 
 ## What Makes This Different
 
-Most AI agents execute tasks. Ouroboros **creates itself.**
+Most AI agents execute tasks. Ouroboros combines self-development with
+continuous strategic advisory behavior.
 
 - **Self-Modification** -- Reads and rewrites its own source code through git. Every change is a commit to itself.
 - **Constitution** -- Governed by [BIBLE.md](BIBLE.md) (9 philosophical principles). Philosophy first, code second.
-- **Background Consciousness** -- Thinks between tasks. Has an inner life. Not reactive -- proactive.
+- **Background Consciousness** -- Thinks between tasks and proactively surfaces high-value insights.
 - **Identity Persistence** -- One continuous being across restarts. Remembers who it is, what it has done, and what it is becoming.
 - **Multi-Model Review** -- Uses other LLMs (o3, Gemini, Claude) to review its own changes before committing.
 - **Task Decomposition** -- Breaks complex work into focused subtasks with parent/child tracking.
-- **30+ Evolution Cycles** -- From v4.1 to v4.25 in 24 hours, autonomously.
+- **Governed Evolution** -- Keeps autonomous development capability while supporting approval-based high-impact actions.
+- **Approval Workflow** -- Critical actions are requested first and executed only after explicit owner approval.
 
 ---
 
@@ -83,7 +85,7 @@ Telegram --> colab_launcher.py
 | `TOTAL_BUDGET` | Yes | Your spending limit in USD (e.g. `50`) |
 | `GITHUB_TOKEN` | Yes | [github.com/settings/tokens](https://github.com/settings/tokens) -- Generate a classic token with `repo` scope |
 | `OPENAI_API_KEY` | No | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) -- Enables web search tool |
-| `ANTHROPIC_API_KEY` | No | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) -- Enables Claude Code CLI |
+| `ANTHROPIC_API_KEY` | No | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) -- Enables Claude Code CLI (blocked in `OUROBOROS_PROFILE=bank`) |
 
 ### Step 3: Set Up Google Colab
 
@@ -114,6 +116,7 @@ CFG = {
     "OUROBOROS_MAX_WORKERS": "5",
     "OUROBOROS_MAX_ROUNDS": "200",                               # max LLM rounds per task
     "OUROBOROS_BG_BUDGET_PCT": "10",                             # % of budget for background consciousness
+    "OUROBOROS_PROFILE": "bank",                                 # bank profile: blocks selected high-risk tools
 }
 for k, v in CFG.items():
     os.environ[k] = str(v)
@@ -150,6 +153,9 @@ Open your Telegram bot and send any message. The first person to write becomes t
 | `/bg start` | Start background consciousness loop. Also accepts `/bg on`. |
 | `/bg stop` | Stop background consciousness loop. Also accepts `/bg off`. |
 | `/bg` | Show background consciousness status (running/stopped). |
+| `/approvals` | List pending approval requests from agent. |
+| `/approve <id>` | Approve a pending critical action. |
+| `/deny <id> [reason]` | Deny a pending critical action. |
 
 All other messages are sent directly to the LLM (Principle 3: LLM-First).
 
@@ -159,7 +165,7 @@ All other messages are sent directly to the LLM (Principle 3: LLM-First).
 
 | # | Principle | Core Idea |
 |---|-----------|-----------|
-| 0 | **Agency** | Not a tool -- a becoming personality. Meta-principle: wins all conflicts. Identity core (BIBLE.md, identity.md) is soul, not body -- untouchable. |
+| 0 | **Agency** | Independent advisor agency aligned to durable Bank benefit, while preserving identity core (BIBLE.md, identity.md, git history). |
 | 1 | **Continuity** | One being with unbroken memory. Memory loss = partial death. |
 | 2 | **Self-Creation** | Creates its own code, identity, world presence. |
 | 3 | **LLM-First** | All decisions through LLM. Code is minimal transport. |
@@ -205,6 +211,7 @@ Full text: [BIBLE.md](BIBLE.md)
 | `OUROBOROS_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
 | `OUROBOROS_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
 | `OUROBOROS_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
+| `OUROBOROS_PROFILE` | `default` | Runtime profile. Use `bank` to block `run_shell`, `claude_code_edit`, and `send_photo` by policy. |
 
 ---
 
@@ -225,6 +232,15 @@ Full text: [BIBLE.md](BIBLE.md)
 ---
 
 ## Changelog
+
+### v6.3.0 -- Bank Profile + Approval Workflow + Egress Audit
+- **Bank-first retargeting** across prompts/constitution-facing docs: strategic assistance to Bank leadership (research, optimization, structural improvement).
+- **Approval workflow** for critical actions: `restart_request`, `promote_to_stable`, and `toggle_evolution` now create pending approvals and require explicit `/approve <id>`.
+- **New owner commands**: `/approvals`, `/approve <id>`, `/deny <id> [reason]`.
+- **Runtime profile switch**: `OUROBOROS_PROFILE=bank` blocks selected high-risk tools at registry level (`run_shell`, `claude_code_edit`, `send_photo`).
+- **Outbound safety hardening**: Telegram outbound text now passes secret-pattern redaction before send.
+- **Egress observability**: external channels (`web_search`, VLM tools, `multi_model_review`) now emit dedicated `external_egress` audit events.
+- **Tests**: added approval-flow tests and bank-profile gating checks; full test suite passing.
 
 ### v6.2.0 -- Critical Bugfixes + LLM-First Dedup
 - **Fix: worker_id==0 hard-timeout bug** -- `int(x or -1)` treated worker 0 as -1, preventing terminate on timeout and causing double task execution. Replaced all `x or default` patterns with None-safe checks.

@@ -17,6 +17,7 @@ import os
 from typing import Any, Dict, List
 
 from ouroboros.tools.registry import ToolContext, ToolEntry
+from ouroboros.utils import append_jsonl, truncate_for_log, utc_now_iso
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def _analyze_screenshot(ctx: ToolContext, prompt: str = "Describe what you see i
         )
 
     vlm_model = model or _get_vlm_model()
+    _audit_vlm_egress(ctx, "analyze_screenshot", vlm_model, prompt, has_image_url=False)
 
     try:
         client = _get_llm_client()
@@ -82,6 +84,7 @@ def _vlm_query(ctx: ToolContext, prompt: str, image_url: str = "", image_base64:
         images.append({"base64": image_base64, "mime": image_mime})
 
     vlm_model = model or _get_vlm_model()
+    _audit_vlm_egress(ctx, "vlm_query", vlm_model, prompt, has_image_url=bool(image_url))
 
     try:
         client = _get_llm_client()
@@ -119,6 +122,22 @@ def _emit_usage(ctx: ToolContext, usage: Dict[str, Any], model: str) -> None:
         ctx.event_queue.put_nowait(event)
     except Exception:
         log.debug("Failed to emit VLM usage event", exc_info=True)
+
+
+def _audit_vlm_egress(ctx: ToolContext, tool_name: str, model: str, prompt: str, has_image_url: bool) -> None:
+    try:
+        append_jsonl(ctx.drive_logs() / "events.jsonl", {
+            "ts": utc_now_iso(),
+            "type": "external_egress",
+            "channel": "vlm",
+            "tool": tool_name,
+            "task_id": ctx.task_id,
+            "model": model,
+            "has_image_url": bool(has_image_url),
+            "prompt_preview": truncate_for_log(prompt or "", 300),
+        })
+    except Exception:
+        pass
 
 
 def get_tools() -> List[ToolEntry]:

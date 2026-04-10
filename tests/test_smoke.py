@@ -67,7 +67,15 @@ def test_import(module):
 def registry():
     from ouroboros.tools.registry import ToolRegistry
     tmp = pathlib.Path(tempfile.mkdtemp())
-    return ToolRegistry(repo_dir=tmp, drive_root=tmp)
+    old_profile = os.environ.get("OUROBOROS_PROFILE")
+    os.environ["OUROBOROS_PROFILE"] = "default"
+    try:
+        yield ToolRegistry(repo_dir=tmp, drive_root=tmp)
+    finally:
+        if old_profile is None:
+            os.environ.pop("OUROBOROS_PROFILE", None)
+        else:
+            os.environ["OUROBOROS_PROFILE"] = old_profile
 
 
 def test_tool_set_matches(registry):
@@ -128,6 +136,23 @@ def test_unknown_tool_returns_warning(registry):
     """Calling unknown tool returns warning, not exception."""
     result = registry.execute("__nonexistent__", {})
     assert "Unknown tool" in result or "⚠️" in result
+
+
+def test_bank_profile_blocks_selected_tools():
+    """Bank profile blocks a subset of high-risk tools."""
+    from ouroboros.tools.registry import ToolRegistry, ToolContext
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    reg = ToolRegistry(repo_dir=tmp, drive_root=tmp)
+    ctx = ToolContext(repo_dir=tmp, drive_root=tmp, profile_name="bank")
+    reg.set_context(ctx)
+
+    tools = set(reg.available_tools())
+    assert "run_shell" not in tools
+    assert "claude_code_edit" not in tools
+    assert "send_photo" not in tools
+
+    blocked = reg.execute("run_shell", {"cmd": ["echo", "hi"]})
+    assert "TOOL_BLOCKED_BY_PROFILE" in blocked
 
 
 def test_tool_schemas_valid(registry):

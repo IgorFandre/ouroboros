@@ -118,6 +118,7 @@ MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="5", allow_legacy_sec
 MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
 MODEL_CODE = get_cfg("OUROBOROS_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
 MODEL_LIGHT = get_cfg("OUROBOROS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
+RUNTIME_PROFILE = get_cfg("OUROBOROS_PROFILE", default="default", allow_legacy_secret=True)
 
 BUDGET_REPORT_EVERY_MESSAGES = 10
 SOFT_TIMEOUT_SEC = max(60, int(get_cfg("OUROBOROS_SOFT_TIMEOUT_SEC", default="600", allow_legacy_secret=True) or "600"))
@@ -142,6 +143,7 @@ os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "anthropic/claude-sonnet-4.6")
 os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "anthropic/claude-sonnet-4.6")
 if MODEL_LIGHT:
     os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
+os.environ["OUROBOROS_PROFILE"] = str(RUNTIME_PROFILE or "default").strip().lower()
 os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
 os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
@@ -266,6 +268,7 @@ append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "sha": load_state().get("current_sha"),
     "max_workers": MAX_WORKERS,
     "model_default": MODEL_MAIN, "model_code": MODEL_CODE, "model_light": MODEL_LIGHT,
+    "runtime_profile": os.environ.get("OUROBOROS_PROFILE", "default"),
     "soft_timeout_sec": SOFT_TIMEOUT_SEC, "hard_timeout_sec": HARD_TIMEOUT_SEC,
     "worker_start_method": str(os.environ.get("OUROBOROS_WORKER_START_METHOD") or ""),
     "diag_heartbeat_sec": DIAG_HEARTBEAT_SEC,
@@ -395,6 +398,89 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         ""    — not a recognized command (falsy, caller falls through)
     """
     lowered = text.strip().lower()
+
+    if lowered.startswith("/approvals"):
+        st = load_state()
+        pending = st.get("pending_approvals")
+        if not isinstance(pending, dict) or not pending:
+            send_with_budget(chat_id, "🔐 No pending approvals.")
+            return True
+        rows = []
+        for req_id, rec in pending.items():
+            if not isinstance(rec, dict):
+                continue
+            if str(rec.get("status") or "") != "pending":
+                continue
+            rows.append(
+                f"- {req_id}: {rec.get('action', '?')} — {str(rec.get('summary') or '')[:120]}"
+            )
+        if not rows:
+            send_with_budget(chat_id, "🔐 No pending approvals.")
+            return True
+        send_with_budget(chat_id, "🔐 Pending approvals:\n" + "\n".join(rows[:20]))
+        return True
+
+    if lowered.startswith("/approve"):
+        parts = text.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            send_with_budget(chat_id, "Usage: /approve <request_id>")
+            return True
+        req_id = parts[1].strip()
+        st = load_state()
+        pending = st.get("pending_approvals")
+        if not isinstance(pending, dict) or req_id not in pending:
+            send_with_budget(chat_id, f"⚠️ Approval request not found: {req_id}")
+            return True
+        rec = pending.get(req_id) or {}
+        if str(rec.get("status") or "") != "pending":
+            send_with_budget(chat_id, f"⚠️ Request {req_id} is already {rec.get('status', 'resolved')}")
+            return True
+
+        rec["status"] = "approved"
+        rec["resolved_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        rec["resolved_by"] = int(chat_id)
+        pending[req_id] = rec
+        st["pending_approvals"] = pending
+        save_state(st)
+
+        approved_event = dict(rec.get("event") or {})
+        if not approved_event.get("type"):
+            send_with_budget(chat_id, f"⚠️ Request {req_id} has no executable event payload")
+            return True
+        approved_event["approved"] = True
+        approved_event["approval_id"] = req_id
+        approved_event["approved_by"] = int(chat_id)
+        dispatch_event(approved_event, _event_ctx)
+        send_with_budget(chat_id, f"✅ Approved and dispatched: {req_id} ({rec.get('action', '?')})")
+        return True
+
+    if lowered.startswith("/deny"):
+        parts = text.strip().split(maxsplit=2)
+        if len(parts) < 2 or not parts[1].strip():
+            send_with_budget(chat_id, "Usage: /deny <request_id> [reason]")
+            return True
+        req_id = parts[1].strip()
+        reason = parts[2].strip() if len(parts) > 2 else ""
+        st = load_state()
+        pending = st.get("pending_approvals")
+        if not isinstance(pending, dict) or req_id not in pending:
+            send_with_budget(chat_id, f"⚠️ Approval request not found: {req_id}")
+            return True
+        rec = pending.get(req_id) or {}
+        if str(rec.get("status") or "") != "pending":
+            send_with_budget(chat_id, f"⚠️ Request {req_id} is already {rec.get('status', 'resolved')}")
+            return True
+
+        rec["status"] = "denied"
+        rec["resolved_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        rec["resolved_by"] = int(chat_id)
+        rec["deny_reason"] = reason
+        pending[req_id] = rec
+        st["pending_approvals"] = pending
+        save_state(st)
+        suffix = f". Reason: {reason}" if reason else ""
+        send_with_budget(chat_id, f"❌ Denied: {req_id} ({rec.get('action', '?')}){suffix}")
+        return True
 
     if lowered.startswith("/panic"):
         send_with_budget(chat_id, "🛑 PANIC: stopping everything now.")

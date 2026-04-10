@@ -21,6 +21,44 @@ from typing import Any, Dict, Optional
 log = logging.getLogger(__name__)
 
 
+def _request_approval(evt: Dict[str, Any], ctx: Any, action: str, summary: str) -> str:
+    """Persist a pending approval request and notify owner chat."""
+    st = ctx.load_state()
+    pending = st.get("pending_approvals")
+    if not isinstance(pending, dict):
+        pending = {}
+
+    request_id = str(evt.get("approval_id") or uuid.uuid4().hex[:8])
+    if request_id not in pending:
+        event_payload = dict(evt)
+        event_payload.pop("approved", None)
+        event_payload.pop("approval_id", None)
+        pending[request_id] = {
+            "id": request_id,
+            "action": action,
+            "summary": summary,
+            "status": "pending",
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "requested_by_task": str(evt.get("task_id") or ""),
+            "event": event_payload,
+        }
+        st["pending_approvals"] = pending
+        ctx.save_state(st)
+
+    owner_chat_id = st.get("owner_chat_id")
+    if owner_chat_id:
+        ctx.send_with_budget(
+            int(owner_chat_id),
+            (
+                f"🔐 Approval required ({request_id})\n"
+                f"Action: {action}\n"
+                f"Summary: {summary}\n\n"
+                f"Use /approve {request_id} or /deny {request_id}"
+            ),
+        )
+    return request_id
+
+
 def _handle_llm_usage(evt: Dict[str, Any], ctx: Any) -> None:
     usage = evt.get("usage") or {}
     ctx.update_budget_from_usage(usage)
@@ -174,11 +212,20 @@ def _handle_review_request(evt: Dict[str, Any], ctx: Any) -> None:
 
 
 def _handle_restart_request(evt: Dict[str, Any], ctx: Any) -> None:
+    if not bool(evt.get("approved")):
+        _request_approval(
+            evt,
+            ctx,
+            action="restart_request",
+            summary=str(evt.get("reason") or "agent requested restart"),
+        )
+        return
+
     st = ctx.load_state()
     if st.get("owner_chat_id"):
         ctx.send_with_budget(
             int(st["owner_chat_id"]),
-            f"♻️ Restart requested by agent: {evt.get('reason')}",
+            f"♻️ Approved restart: {evt.get('reason')}",
         )
     ok, msg = ctx.safe_restart(
         reason="agent_restart_request", unsynced_policy="rescue_and_reset"
@@ -200,6 +247,15 @@ def _handle_restart_request(evt: Dict[str, Any], ctx: Any) -> None:
 
 
 def _handle_promote_to_stable(evt: Dict[str, Any], ctx: Any) -> None:
+    if not bool(evt.get("approved")):
+        _request_approval(
+            evt,
+            ctx,
+            action="promote_to_stable",
+            summary=str(evt.get("reason") or "agent requested stable promotion"),
+        )
+        return
+
     import subprocess as sp
     try:
         sp.run(["git", "fetch", "origin"], cwd=str(ctx.REPO_DIR), check=True)
@@ -332,6 +388,16 @@ def _handle_cancel_task(evt: Dict[str, Any], ctx: Any) -> None:
 
 def _handle_toggle_evolution(evt: Dict[str, Any], ctx: Any) -> None:
     """Toggle evolution mode from LLM tool call."""
+    if not bool(evt.get("approved")):
+        desired = "enable" if bool(evt.get("enabled")) else "disable"
+        _request_approval(
+            evt,
+            ctx,
+            action="toggle_evolution",
+            summary=f"{desired} evolution mode",
+        )
+        return
+
     enabled = bool(evt.get("enabled"))
     st = ctx.load_state()
     st["evolution_mode_enabled"] = enabled

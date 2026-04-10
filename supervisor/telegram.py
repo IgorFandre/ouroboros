@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from supervisor.state import load_state, save_state, append_jsonl
+from ouroboros.utils import sanitize_tool_result_for_log
 
 log = logging.getLogger(__name__)
 
@@ -187,10 +188,11 @@ def _sanitize_telegram_text(text: str) -> str:
     if text is None:
         return ""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    return "".join(
+    text = "".join(
         c for c in text
         if (ord(c) >= 32 or c in ("\n", "\t")) and not (0xD800 <= ord(c) <= 0xDFFF)
     )
+    return sanitize_tool_result_for_log(text)
 
 
 def _tg_utf16_len(text: str) -> int:
